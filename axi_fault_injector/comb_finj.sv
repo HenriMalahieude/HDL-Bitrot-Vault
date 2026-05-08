@@ -15,13 +15,13 @@ module comb_finj #(
 	input aresetn,
 
 	input fault_en, //the button
-	input fault_det_in, //the seup signal
+	input fault_det_in, //disable fault injection
 
 	output reg inj_force, //actively injecting at the moment
 	output reg [1:0] inj_type,
 	output reg [31:0] flipper, //which bits are gonna flip
 
-	//SEUP Connection
+	//Following the transaction
 	output reg [12:0] 	m_awid,
 	output reg [31:0] 	m_awaddr, //inj here
 	output reg [7:0] 	m_awlen,
@@ -56,7 +56,7 @@ module comb_finj #(
 	input				m_rvalid,
 	output reg			m_rready,
 
-	//Upstream Connection
+	//Leading the transaction
 	input [12:0] 		s_awid,
 	input [31:0] 		s_awaddr,
 	input [7:0] 		s_awlen,
@@ -108,7 +108,7 @@ end else begin
 	end // */
 end
 
-//Force a fault injection until the error is detected by SEUP
+//Force a fault injection until the error is detected
 always @(posedge aclk) begin
 	if (!aresetn || fault_det_in) begin
 		inj_force = 0;
