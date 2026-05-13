@@ -7,7 +7,7 @@ import axi_vip_pkg::*;
 import axi_vip_0_pkg::*;
 import axi_vip_1_pkg::*;
 
-module tb_comb_finj();
+module tb_comb_finj_fp(); //NOTE: Difference with base is that it tests the partial channel and fixed injections
 
 	reg clk;
 	reg rstl;
@@ -96,7 +96,7 @@ module tb_comb_finj();
 	//begin verifier int mem mode (save the writes)
 	axi_vip_0_slv_mem_t flwr_vip_agent;
 	initial begin
-		flwr_vip_agent = new("seup vip mem agent", tb_comb_finj.flwr_vip.inst.IF);
+		flwr_vip_agent = new("seup vip mem agent", tb_comb_finj_fp.flwr_vip.inst.IF);
 		flwr_vip_agent.start_slave();
 	end
 
@@ -174,16 +174,16 @@ module tb_comb_finj();
 	//begin verifier
 	axi_vip_1_mst_t up_vip_agent;
 	initial begin
-		up_vip_agent = new("up vip mem agent", tb_comb_finj.up_vip.inst.IF);
+		up_vip_agent = new("up vip mem agent", tb_comb_finj_fp.up_vip.inst.IF);
 		up_vip_agent.start_master();
 	end
 
 	comb_finj #( //Standard device testing
 			.CONTINUOUS_INJ_EN(1),
-			.FI_FIXED(0),
-			.FIXED_INJ(32'h1),
-			.FI_RDATA_EN(1),
-			.FI_WDATA_EN(1),
+			.FI_FIXED(1),
+			.FIXED_INJ(32'hFF00),
+			.FI_RDATA_EN(0),
+			.FI_WDATA_EN(0),
 			.FI_RADDR_EN(1),
 			.FI_WADDR_EN(1)
 		) dut (
@@ -370,7 +370,7 @@ module tb_comb_finj();
 		rstl = 1;
 		#`CLK_PERIOD
 		rstl = 0;
-		#(`CLK_PERIOD * 16)
+		#(`CLK_PERIOD * 16) //AXI Expects at least 16 clock cycles for this
 		rstl = 1;
 
 		$display("Testing simple ctrl signals");
@@ -379,7 +379,7 @@ module tb_comb_finj();
 		if (inj_force != 1) begin
 			$fatal("Force injection not high?");
 		end
-		if (inj_type != 0) begin
+		if (inj_type != 2) begin
 			$fatal("Injection type is not properly set?");
 		end // */
 
@@ -395,7 +395,7 @@ module tb_comb_finj();
 		if (inj_force != 0) begin
 			$fatal("Force injection not reset with fault_det_in");
 		end
-		if (inj_type != 1) begin
+		if (inj_type != 3) begin
 			$fatal("Injection type did not increment?");
 		end // */
 
@@ -416,7 +416,7 @@ module tb_comb_finj();
 		if (inj_force != 0) begin
 			$fatal("Force injection did not reset?");
 		end
-		if (inj_type != 0) begin
+		if (inj_type != 2) begin
 			$fatal("Injection type didn't reset");
 		end // */
 
@@ -433,13 +433,13 @@ module tb_comb_finj();
 		$display("Testing AXI transactions, w/ faults");
 
 		addr = ((2**32) - 1);
-		addr = addr ^ 8'hff;
+		addr = addr ^ 8'hff; //accessing anything shouldn't cross 256 boundary or something
 		for (integer i = 0; i < 4; i = i + 1) begin
 			fault_det_in = 0;
 			fault_en = 1;
 			#(`CLK_PERIOD * 3)
 			fault_en = 0;
-			if (inj_type != i) $fatal("Injection type is not properly set?");
+			if (inj_type != ((i % 2) + 2)) $fatal("Injection type is not properly set?");
 
 			$display("%d: Write Instance", i);
 			do_write_tx("w2", addr, data_blocks[i], 7, common_txid);

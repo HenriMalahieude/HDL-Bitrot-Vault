@@ -7,7 +7,7 @@ import axi_vip_pkg::*;
 import axi_vip_0_pkg::*;
 import axi_vip_1_pkg::*;
 
-module tb_comb_finj();
+module tb_comb_finj_nc(); //NOTE: Difference is that this tests the noncontinuous version, with only a single injection location, and a fixed flipping
 
 	reg clk;
 	reg rstl;
@@ -96,7 +96,7 @@ module tb_comb_finj();
 	//begin verifier int mem mode (save the writes)
 	axi_vip_0_slv_mem_t flwr_vip_agent;
 	initial begin
-		flwr_vip_agent = new("seup vip mem agent", tb_comb_finj.flwr_vip.inst.IF);
+		flwr_vip_agent = new("seup vip mem agent", tb_comb_finj_nc.flwr_vip.inst.IF);
 		flwr_vip_agent.start_slave();
 	end
 
@@ -174,18 +174,18 @@ module tb_comb_finj();
 	//begin verifier
 	axi_vip_1_mst_t up_vip_agent;
 	initial begin
-		up_vip_agent = new("up vip mem agent", tb_comb_finj.up_vip.inst.IF);
+		up_vip_agent = new("up vip mem agent", tb_comb_finj_nc.up_vip.inst.IF);
 		up_vip_agent.start_master();
 	end
 
 	comb_finj #( //Standard device testing
-			.CONTINUOUS_INJ_EN(1),
-			.FI_FIXED(0),
-			.FIXED_INJ(32'h1),
-			.FI_RDATA_EN(1),
-			.FI_WDATA_EN(1),
+			.CONTINUOUS_INJ_EN(0),
+			.FI_FIXED(1),
+			.FIXED_INJ(32'hFF000),
+			.FI_RDATA_EN(0),
+			.FI_WDATA_EN(0),
 			.FI_RADDR_EN(1),
-			.FI_WADDR_EN(1)
+			.FI_WADDR_EN(0)
 		) dut (
 		.aclk(clk),
 		.aresetn(rstl),
@@ -379,9 +379,9 @@ module tb_comb_finj();
 		if (inj_force != 1) begin
 			$fatal("Force injection not high?");
 		end
-		if (inj_type != 0) begin
+		if (inj_type != 3) begin
 			$fatal("Injection type is not properly set?");
-		end // */
+		end
 
 		fault_en = 0;
 		#(`CLK_PERIOD)
@@ -392,12 +392,12 @@ module tb_comb_finj();
 		$display("Testing ctrl signal resets");
 		fault_det_in = 1;
 		#(`CLK_PERIOD)
-		if (inj_force != 0) begin
-			$fatal("Force injection not reset with fault_det_in");
+		if (inj_force != 1) begin
+			$fatal("Force injection was reset with fault_det_in");
 		end
-		if (inj_type != 1) begin
-			$fatal("Injection type did not increment?");
-		end // */
+		if (inj_type != 3) begin
+			$fatal("Injection type changed from only one enabled?");
+		end
 
 		fault_det_in = 0;
 		fault_en = 1;
@@ -416,10 +416,9 @@ module tb_comb_finj();
 		if (inj_force != 0) begin
 			$fatal("Force injection did not reset?");
 		end
-		if (inj_type != 0) begin
+		if (inj_type != 3) begin
 			$fatal("Injection type didn't reset");
-		end // */
-
+		end
 		$display("Testing AXI transactions, no faults");
 		for (integer i = 0; i < 8; i = i + 1) begin
 			$display("%d: Write instance", i);
@@ -433,28 +432,30 @@ module tb_comb_finj();
 		$display("Testing AXI transactions, w/ faults");
 
 		addr = ((2**32) - 1);
-		addr = addr ^ 8'hff;
+		addr = addr ^ 8'hff; //accessing anything shouldn't cross 256 boundary or something
 		for (integer i = 0; i < 4; i = i + 1) begin
-			fault_det_in = 0;
 			fault_en = 1;
 			#(`CLK_PERIOD * 3)
 			fault_en = 0;
-			if (inj_type != i) $fatal("Injection type is not properly set?");
+			if (inj_force != 1) $fatal("Force injection was not set? (2)");
+			if (inj_type != 3) $fatal("Injection type is not properly set? (2)");
 
 			$display("%d: Write Instance", i);
-			do_write_tx("w2", addr, data_blocks[i], 7, common_txid);
+			do_write_tx("w2", addr, data_blocks[i], 7, common_txid); //write to the location
 			#`CLK_PERIOD
+			if (inj_force != 1) $fatal("Force injection reset on incorrect channel?");
 
 			$display("%d: Read Instance", i);
-			do_read_tx("r2", addr, data_blocks[i], 7, common_txid, 1);
-
-			fault_det_in = 1;
-			#(`CLK_PERIOD * 2)
+			do_read_tx("r2", addr, data_blocks[i], 7, common_txid, 1); //this read will not be what we are searching for
 			if (inj_force != 0) $fatal("Force injection did not reset?");
+
+			$display("%d: Read Instance2", i);
+			do_read_tx("r3", addr, data_blocks[i], 7, common_txid); //should be the true value
+			#(`CLK_PERIOD * 2); // */
 		end
 
 		#(`CLK_PERIOD*16)
-		$display("DONE");
+		$display("DONE"); //*/
 		$finish;
 	end
 

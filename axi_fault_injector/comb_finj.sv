@@ -2,12 +2,13 @@
 
 module comb_finj #(
 
+	parameter CONTINUOUS_INJ_EN = 1, //Inject until fault_det_in is positive, otherwise only inject on one axi transaction
+	parameter FI_FIXED = 0,			//Don't change the location of the bit flip every clock cycle
+	parameter FIXED_INJ = 32'hFF,	//If Fixed Fault Injection is enabled, where to inject the bit flip. Ignored otherwise
 	parameter FI_RDATA_EN = 1, 		//Enable fault injection on read data channel
 	parameter FI_WDATA_EN = 1, 		//Enable fault injection on write data channel
 	parameter FI_RADDR_EN = 1, 		//Enable fault injection on read addr channel
-	parameter FI_WADDR_EN = 1, 		//Enable fault injection on write addr channel
-	parameter FI_FIXED = 0,			//Do not change the location of the bit flip
-	parameter INJ_FLIP_DEF = 32'hFF	//If Fixed, where to inject the bit flip. Ignored otherwise
+	parameter FI_WADDR_EN = 1 		//Enable fault injection on write addr channel
 
 	)(
 
@@ -15,13 +16,13 @@ module comb_finj #(
 	input aresetn,
 
 	input fault_en, //the button
-	input fault_det_in, //disable fault injection
+	input fault_det_in, //the fault has been detected
 
 	output reg inj_force, //actively injecting at the moment
-	output reg [1:0] inj_type,
+	output reg [1:0] inj_type, //what channel it's injecting it on
 	output reg [31:0] flipper, //which bits are gonna flip
 
-	//Following the transaction
+	//Connected to the follower of the transaction
 	output reg [12:0] 	m_awid,
 	output reg [31:0] 	m_awaddr, //inj here
 	output reg [7:0] 	m_awlen,
@@ -56,7 +57,7 @@ module comb_finj #(
 	input				m_rvalid,
 	output reg			m_rready,
 
-	//Leading the transaction
+	//Connected to the leader of the transaction
 	input [12:0] 		s_awid,
 	input [31:0] 		s_awaddr,
 	input [7:0] 		s_awlen,
@@ -96,7 +97,7 @@ module comb_finj #(
 //Register holding the bit that will flip
 if (FI_FIXED) begin
 	initial begin
-		flipper = INJ_FLIP_DEF;
+		flipper = FIXED_INJ;
 	end
 end else begin
 	always @(posedge aclk) begin
@@ -108,16 +109,20 @@ end else begin
 	end // */
 end
 
-//Force a fault injection until the error is detected
+//Force a fault injection until error is detected
+reg inj_force_reset;
 always @(posedge aclk) begin
-	if (!aresetn || fault_det_in) begin
+	if (!aresetn
+			|| ( CONTINUOUS_INJ_EN && fault_det_in)
+			|| (!CONTINUOUS_INJ_EN && inj_force_reset)) begin
 		inj_force = 0;
+		inj_force_reset = 0;
 	end else begin
 		if (fault_en) inj_force = 1;
 	end
 end
 
-//things we'll inject on
+//Storing the faulty(?) value before sending it along
 reg [31:0] lcl_araddr;
 reg [31:0] lcl_awaddr;
 reg [31:0] lcl_rdata;
@@ -130,7 +135,7 @@ always @(posedge aclk) begin
 		else if (FI_WDATA_EN) inj_type = INJ_WDATA;
 		else if (FI_WADDR_EN) inj_type = INJ_WADDR;
 		else 				  inj_type = INJ_RADDR;
-	end else if (fault_det_in) begin
+	end else if ( (CONTINUOUS_INJ_EN && fault_det_in) || (!CONTINUOUS_INJ_EN && inj_force_reset) ) begin
 		case (inj_type)
 			INJ_RDATA: begin
 				if 		(FI_WDATA_EN) inj_type = INJ_WDATA;
@@ -205,6 +210,7 @@ always @(*) begin
 				if (FI_WADDR_EN) begin
 					if (inj_force && inj_type == INJ_WADDR) begin
 						lcl_awaddr = (s_awaddr ^ flipper);
+						if (!CONTINUOUS_INJ_EN) inj_force_reset = 1;
 					end else begin
 						lcl_awaddr = s_awaddr;
 					end // */
@@ -246,6 +252,7 @@ always @(*) begin
 				if (FI_WDATA_EN) begin
 					if (inj_force && inj_type == INJ_WDATA) begin
 						lcl_wdata = (s_wdata ^ flipper);
+						if (!CONTINUOUS_INJ_EN) inj_force_reset = 1;
 					end else begin
 						lcl_wdata = s_wdata;
 					end
@@ -314,6 +321,7 @@ always @(*) begin
 				if (FI_RADDR_EN) begin
 					if (inj_force && inj_type == INJ_RADDR) begin
 						lcl_araddr = (s_araddr ^ flipper);
+						if (!CONTINUOUS_INJ_EN) inj_force_reset = 1;
 					end else begin
 						lcl_araddr = s_araddr;
 					end // */
@@ -356,6 +364,7 @@ always @(*) begin
 				if (FI_RDATA_EN) begin
 					if (inj_force && inj_type == INJ_RDATA) begin
 						lcl_rdata = (m_rdata ^ flipper);
+						if (!CONTINUOUS_INJ_EN) inj_force_reset = 1;
 					end else begin
 						lcl_rdata = m_rdata;
 					end
